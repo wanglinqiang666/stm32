@@ -89,3 +89,4 @@ void SystemInit (void)
 	while ((RCC->CFGR & (uint32_t)RCC_CFGR_SWS) != (uint32_t)0x08);
 }
 倍频备注：倍频可以从6M到45M，通过修改RCC_CFGR_PLLMULL4，此处与数据手册说法有一点不符合，但是通过示波器实际测出是可以的。计算公式system_clk=6M/2*倍频数
+至于为何是6M,怀疑可能是内部RC晶振有点问题或者配置问题待解决
