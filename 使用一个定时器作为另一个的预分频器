@@ -1,0 +1,100 @@
+使用一个定时器作为另一个的预分频器
+使用TIM3作为TIM2的分频器   测量M级别信号频率
+
+
+
+void TIM2clkTIM3_Int_Init(void)
+{
+	TIM_TimeBaseInitTypeDef TIM_TimeBaseInitStruct;
+	GPIO_InitTypeDef GPIO_InitStructure;
+	NVIC_InitTypeDef NVIC_InitStructure;
+	
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2,ENABLE);
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3,ENABLE);
+	
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+	GPIO_Init(GPIOA, &GPIO_InitStructure);//PA0是定时器2通道一引脚
+
+	//定时器TIM2初始化
+	TIM_TimeBaseInitStruct.TIM_Period = 0xFFFF;	 //自动重装载计数值
+	TIM_TimeBaseInitStruct.TIM_Prescaler =0x0000;	//预分频系数0+1，不分频
+	TIM_TimeBaseInitStruct.TIM_ClockDivision = TIM_CKD_DIV1;//定义在定时器时钟(CK_INT)频率与数字滤波器(ETR，TIx)使用的采样频率之间的分频比例。,00：tDTS = tCK_INT,不分频
+	TIM_TimeBaseInitStruct.TIM_CounterMode = TIM_CounterMode_Up; //向上计数
+	TIM_TimeBaseInit(TIM2,&TIM_TimeBaseInitStruct);	
+	
+	//CH1通道输入TI1，上升沿计数，无滤波器
+	TIM_TIxExternalClockConfig(TIM2,TIM_TIxExternalCLK1Source_TI1,TIM_ICPolarity_Rising,0x0);
+	TIM_SelectMasterSlaveMode(TIM2,TIM_MasterSlaveMode_Enable); 
+
+	//010：更新 – 更新事件被选为触发输入(TRGO)。
+	//例如，一个主定时器的时钟可以被用作一个从定时器的预分频器。
+ 	TIM_SelectOutputTrigger(TIM2,TIM_TRGOSource_Update);
+
+	//定时器TIM3初始化
+	TIM_TimeBaseInitStruct.TIM_Period = 0xFFFF;	 //自动重装载计数值
+	TIM_TimeBaseInitStruct.TIM_Prescaler =0x0000;	//预分频系数0+1，不分频
+	TIM_TimeBaseInitStruct.TIM_ClockDivision = TIM_CKD_DIV1;//定义在定时器时钟(CK_INT)频率与数字滤波器(ETR，TIx)使用的采样频率之间的分频比例。,00：tDTS = tCK_INT,不分频
+	TIM_TimeBaseInitStruct.TIM_CounterMode = TIM_CounterMode_Up; //向上计数
+	TIM_TimeBaseInit(TIM3,&TIM_TimeBaseInitStruct);	
+	//连接定时器2的TRGO1输出至定时器3，设置TIM2_SMCR寄存器的TS=’001’，
+	//配置定时器3为使用ITR1作为内部触发的从模式。
+	TIM_SelectInputTrigger(TIM3,TIM_TS_ITR1);
+	//然后把从模式控制器置于外部时钟模式1(TIM3_SMCR寄存器的SMS=111)；
+	//这样定时器3即可由定时器1周期性的上升沿(即定时器1的计数器溢出)信号驱动。
+ 	TIM_SelectSlaveMode(TIM3,TIM_SlaveMode_External1);
+ 
+	TIM_Cmd(TIM3,ENABLE);
+	TIM_Cmd(TIM2,ENABLE);
+} 
+
+
+
+//TIM5作为1秒钟定时中断
+void TIM5_ITINit(void)
+{
+	TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
+	NVIC_InitTypeDef NVIC_InitStructure;
+	
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM5, ENABLE);
+	
+	TIM_TimeBaseStructure.TIM_Prescaler = 1999;//预分频值
+	TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;//向上计数模式
+	TIM_TimeBaseStructure.TIM_Period = 35999;//在下一个更新事件装入活动的自动重装载寄存器周期的值
+	TIM_TimeBaseStructure.TIM_ClockDivision = TIM_CKD_DIV1;//TDTS = Tck_tim
+	TIM_TimeBaseStructure.TIM_RepetitionCounter = 0;//重复计数值
+	TIM_TimeBaseInit(TIM5,&TIM_TimeBaseStructure);//初始化
+	
+	TIM_ClearFlag(TIM5, TIM_FLAG_Update);//清中断标志位
+	
+	NVIC_InitStructure.NVIC_IRQChannel = TIM5_IRQn;
+	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 2;
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 2;
+	NVIC_Init(&NVIC_InitStructure);
+	
+	TIM_ITConfig(TIM5, TIM_IT_Update, ENABLE);//使能或者失能指定的TIM中断
+	TIM_Cmd(TIM5, ENABLE);//使能或者失能TIMx外设
+} 
+
+
+void TIM5_IRQHandler(void)
+{
+	if(TIM_GetITStatus(TIM5, TIM_IT_Update) != RESET)
+	{
+		TIM1_LSB=TIM_GetCounter(TIM2);
+ 		TIM2_MSB=TIM_GetCounter(TIM3);
+		Current_Count_32=TIM2_MSB*65535+TIM1_LSB;
+		Count_32=Current_Count_32-Last_Count_32;//差值
+		Last_Count_32=Current_Count_32;  //保存当前计数
+		CNT = Count_32;
+		TIM_ClearITPendingBit(TIM5, TIM_IT_Update);
+		TIM1_LSB1 = TIM1_LSB;
+		TIM2_MSB1 = TIM2_MSB;
+	}
+	
+}
+
+Count_32的值就是所测信号的频率
+
